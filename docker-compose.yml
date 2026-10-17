@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: noteforge
+      POSTGRES_PASSWORD: noteforge
+      POSTGRES_DB: noteforge
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - nf_pg:/var/lib/postgresql/data
+
+volumes:
+  nf_pg:
