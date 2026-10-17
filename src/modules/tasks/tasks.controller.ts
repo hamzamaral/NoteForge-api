@@ -10,7 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { Allow, IsEnum, IsOptional, IsString, IsUUID, MinLength, ValidateIf } from 'class-validator';
 import { TaskStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { TasksService } from './tasks.service';
@@ -41,10 +41,14 @@ class UpdateTaskDto {
   @IsEnum(TaskStatus)
   status?: TaskStatus;
 
+  /** YYYY-MM-DD or ISO; null clears the date */
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
   dueAt?: string | null;
 
   @IsOptional()
+  @Allow()
   pageId?: string | null;
 }
 

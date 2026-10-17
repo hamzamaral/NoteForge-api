@@ -10,3 +10,4 @@
 | 5 | Share links, comments, invites | ship + deepen (revoke share, remove member, comment ACL) |
 | 6 | Socket presence + Yjs relay | ship + deepen (JWT, room Y.Doc, TipTap caret) |
 | 7 | Search, INTERVIEW polish, README | ship + deepen (Ctrl+K, snippets, ADR 0003) |
+| 8 | UX polish (recents, save, dates, DB copy) | ship |
