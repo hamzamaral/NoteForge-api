@@ -8,13 +8,18 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
 
-const TEMPLATES: Record<string, { title: string; blocks: { type: string; props: object; sortOrder: number }[] }> = {
+const TEMPLATES: Record<
+  string,
+  { title: string; description: string; blocks: { type: string; props: object; sortOrder: number }[] }
+> = {
   blank: {
-    title: 'Adsız',
+    title: 'Boş sayfa',
+    description: 'Sıfırdan yaz',
     blocks: [{ type: 'paragraph', props: { text: '' }, sortOrder: 1 }],
   },
   meeting: {
     title: 'Toplantı notu',
+    description: 'Gündem + aksiyonlar',
     blocks: [
       { type: 'heading', props: { level: 1, text: 'Toplantı' }, sortOrder: 1 },
       { type: 'paragraph', props: { text: 'Tarih: ' }, sortOrder: 2 },
@@ -27,6 +32,7 @@ const TEMPLATES: Record<string, { title: string; blocks: { type: string; props: 
   },
   project: {
     title: 'Proje',
+    description: 'Özet + görev listesi',
     blocks: [
       { type: 'heading', props: { level: 1, text: 'Proje özeti' }, sortOrder: 1 },
       { type: 'paragraph', props: { text: 'Hedef:' }, sortOrder: 2 },
@@ -35,7 +41,45 @@ const TEMPLATES: Record<string, { title: string; blocks: { type: string; props: 
       { type: 'paragraph', props: { text: '' }, sortOrder: 5 },
     ],
   },
+  brainstorm: {
+    title: 'Beyin fırtınası',
+    description: 'Fikirler + çizim alanı',
+    blocks: [
+      { type: 'heading', props: { level: 1, text: 'Beyin fırtınası' }, sortOrder: 1 },
+      { type: 'bullet', props: { text: 'Fikir 1' }, sortOrder: 2 },
+      { type: 'bullet', props: { text: 'Fikir 2' }, sortOrder: 3 },
+      { type: 'heading', props: { level: 2, text: 'Çizim' }, sortOrder: 4 },
+      {
+        type: 'drawing',
+        props: { sceneId: 'brainstorm', scene: null },
+        sortOrder: 5,
+      },
+      { type: 'paragraph', props: { text: '' }, sortOrder: 6 },
+    ],
+  },
+  weekly: {
+    title: 'Haftalık plan',
+    description: 'Pzt–Paz checklist',
+    blocks: [
+      { type: 'heading', props: { level: 1, text: 'Haftalık plan' }, sortOrder: 1 },
+      { type: 'todo', props: { text: 'Pazartesi', checked: false }, sortOrder: 2 },
+      { type: 'todo', props: { text: 'Salı', checked: false }, sortOrder: 3 },
+      { type: 'todo', props: { text: 'Çarşamba', checked: false }, sortOrder: 4 },
+      { type: 'todo', props: { text: 'Perşembe', checked: false }, sortOrder: 5 },
+      { type: 'todo', props: { text: 'Cuma', checked: false }, sortOrder: 6 },
+      { type: 'paragraph', props: { text: 'Notlar:' }, sortOrder: 7 },
+      { type: 'paragraph', props: { text: '' }, sortOrder: 8 },
+    ],
+  },
 };
+
+export function listPageTemplates() {
+  return Object.entries(TEMPLATES).map(([key, t]) => ({
+    key,
+    title: t.title,
+    description: t.description,
+  }));
+}
 
 @Injectable()
 export class PagesService {
@@ -216,6 +260,44 @@ export class PagesService {
     return this.get(userId, pageId);
   }
 
+  listTemplates() {
+    return listPageTemplates();
+  }
+
+  async importMarkdown(
+    userId: string,
+    workspaceId: string,
+    markdown: string,
+    title?: string,
+    parentId?: string,
+  ) {
+    await this.access.assertMember(userId, workspaceId);
+    const blocks = markdownToBlocks(markdown);
+    const derivedTitle =
+      title ||
+      markdown
+        .split('\n')
+        .find((l) => l.startsWith('# '))
+        ?.replace(/^#\s+/, '')
+        .trim() ||
+      'İçe aktarılan';
+    return this.prisma.page.create({
+      data: {
+        workspaceId,
+        parentId,
+        title: derivedTitle,
+        blocks: {
+          create: blocks.map((b) => ({
+            type: b.type,
+            props: b.props as Prisma.InputJsonValue,
+            sortOrder: b.sortOrder,
+          })),
+        },
+      },
+      include: { blocks: true },
+    });
+  }
+
   async exportMarkdown(userId: string, pageId: string) {
     const page = await this.get(userId, pageId);
     const lines: string[] = [`# ${page.title}`, ''];
@@ -286,4 +368,76 @@ export class PagesService {
       : [];
     return [...byTitle, ...extra];
   }
+}
+
+function markdownToBlocks(
+  md: string,
+): { type: string; props: object; sortOrder: number }[] {
+  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  const blocks: { type: string; props: object; sortOrder: number }[] = [];
+  let order = 1;
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) {
+        body.push(lines[i]);
+        i++;
+      }
+      blocks.push({ type: 'code', props: { text: body.join('\n') }, sortOrder: order++ });
+      i++;
+      continue;
+    }
+    if (/^#{1,3}\s/.test(line)) {
+      const level = line.match(/^#+/)?.[0].length || 1;
+      blocks.push({
+        type: 'heading',
+        props: { level: Math.min(level, 3), text: line.replace(/^#+\s*/, '') },
+        sortOrder: order++,
+      });
+    } else if (/^-\s\[[ xX]\]\s/.test(line)) {
+      blocks.push({
+        type: 'todo',
+        props: {
+          checked: /\[x\]/i.test(line),
+          text: line.replace(/^-\s\[[ xX]\]\s*/, ''),
+        },
+        sortOrder: order++,
+      });
+    } else if (/^[-*]\s/.test(line)) {
+      blocks.push({
+        type: 'bullet',
+        props: { text: line.replace(/^[-*]\s+/, '') },
+        sortOrder: order++,
+      });
+    } else if (/^>\s?/.test(line)) {
+      blocks.push({
+        type: 'quote',
+        props: { text: line.replace(/^>\s?/, '') },
+        sortOrder: order++,
+      });
+    } else if (/^---+$/.test(line.trim())) {
+      blocks.push({ type: 'divider', props: {}, sortOrder: order++ });
+    } else if (/^!\[[^\]]*\]\([^)]+\)/.test(line)) {
+      const m = line.match(/^!\[([^\]]*)\]\(([^)]+)\)/);
+      if (m) {
+        blocks.push({
+          type: 'image',
+          props: { alt: m[1], src: m[2] },
+          sortOrder: order++,
+        });
+      }
+    } else if (line.trim() === '') {
+      // skip blank
+    } else {
+      blocks.push({ type: 'paragraph', props: { text: line }, sortOrder: order++ });
+    }
+    i++;
+  }
+  if (!blocks.length) {
+    blocks.push({ type: 'paragraph', props: { text: '' }, sortOrder: 1 });
+  }
+  return blocks;
 }

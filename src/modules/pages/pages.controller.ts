@@ -88,6 +88,22 @@ class SaveBlocksDto {
   links?: { toPageId: string }[];
 }
 
+class ImportMdDto {
+  @IsUUID()
+  workspaceId!: string;
+
+  @IsString()
+  markdown!: string;
+
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+}
+
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class PagesController {
@@ -165,5 +181,21 @@ export class PagesController {
   @Get('pages/:id/export.md')
   exportMd(@Req() req: { user: { id: string } }, @Param('id') id: string) {
     return this.pages.exportMarkdown(req.user.id, id);
+  }
+
+  @Get('templates')
+  templates() {
+    return this.pages.listTemplates();
+  }
+
+  @Post('pages/import.md')
+  importMd(@Req() req: { user: { id: string } }, @Body() dto: ImportMdDto) {
+    return this.pages.importMarkdown(
+      req.user.id,
+      dto.workspaceId,
+      dto.markdown,
+      dto.title,
+      dto.parentId,
+    );
   }
 }
