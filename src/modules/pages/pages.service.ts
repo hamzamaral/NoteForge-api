@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -110,7 +111,31 @@ export class PagesService {
     pageId: string,
     data: { title?: string; icon?: string; parentId?: string | null; isFavorite?: boolean },
   ) {
-    await this.access.assertPageAccess(userId, pageId);
+    const page = await this.access.assertPageAccess(userId, pageId);
+    if (data.parentId !== undefined && data.parentId !== null) {
+      if (data.parentId === pageId) {
+        throw new BadRequestException('Sayfa kendi altına taşınamaz');
+      }
+      const parent = await this.prisma.page.findUnique({ where: { id: data.parentId } });
+      if (!parent || parent.workspaceId !== page.workspaceId || parent.trashedAt) {
+        throw new BadRequestException('Hedef üst sayfa geçersiz');
+      }
+      // Prevent cycles: walk ancestors of new parent
+      let cursor: string | null = data.parentId;
+      const seen = new Set<string>();
+      while (cursor) {
+        if (cursor === pageId) {
+          throw new BadRequestException('Döngüsel hiyerarşi engellendi');
+        }
+        if (seen.has(cursor)) break;
+        seen.add(cursor);
+        const row = await this.prisma.page.findUnique({
+          where: { id: cursor },
+          select: { parentId: true },
+        });
+        cursor = row?.parentId ?? null;
+      }
+    }
     return this.prisma.page.update({
       where: { id: pageId },
       data: {
