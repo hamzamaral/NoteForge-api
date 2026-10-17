@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -45,5 +45,14 @@ export class WorkspacesController {
     @Body() dto: InviteDto,
   ) {
     return this.workspaces.invite(req.user.id, id, dto.email, dto.role);
+  }
+
+  @Delete(':id/members/:userId')
+  removeMember(
+    @Req() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.workspaces.removeMember(req.user.id, id, userId);
   }
 }

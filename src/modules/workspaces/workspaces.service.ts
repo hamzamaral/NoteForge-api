@@ -47,7 +47,12 @@ export class WorkspacesService {
 
   async invite(userId: string, workspaceId: string, email: string, role: Role) {
     const me = await this.access.assertMember(userId, workspaceId);
-    if (me.role !== Role.OWNER) throw new ForbiddenException('Sadece owner davet edebilir');
+    if (me.role !== Role.OWNER && me.role !== Role.EDITOR) {
+      throw new ForbiddenException('Davet için owner veya editor olmalısın');
+    }
+    if (role === Role.OWNER && me.role !== Role.OWNER) {
+      throw new ForbiddenException('Sadece owner, owner rolü verebilir');
+    }
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new NotFoundException('Kullanıcı yok — önce kayıt olsun');
     return this.prisma.workspaceMember.upsert({
@@ -56,5 +61,24 @@ export class WorkspacesService {
       update: { role },
       include: { user: { select: { id: true, email: true, fullName: true } } },
     });
+  }
+
+  async removeMember(actorId: string, workspaceId: string, memberUserId: string) {
+    const me = await this.access.assertMember(actorId, workspaceId);
+    if (me.role !== Role.OWNER) throw new ForbiddenException('Sadece owner üye çıkarabilir');
+    if (actorId === memberUserId) {
+      throw new ForbiddenException('Kendini çıkaramazsın');
+    }
+    const target = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: memberUserId } },
+    });
+    if (!target) throw new NotFoundException('Üye bulunamadı');
+    if (target.role === Role.OWNER) {
+      throw new ForbiddenException('Owner çıkarılamaz');
+    }
+    await this.prisma.workspaceMember.delete({
+      where: { workspaceId_userId: { workspaceId, userId: memberUserId } },
+    });
+    return { ok: true };
   }
 }
