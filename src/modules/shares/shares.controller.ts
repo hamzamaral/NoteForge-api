@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 import { SharePermission } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { SharesService } from './shares.service';
@@ -11,6 +11,16 @@ class CreateShareDto {
   @IsOptional()
   @IsEnum(SharePermission)
   permission?: SharePermission;
+}
+
+class PublicCommentDto {
+  @IsString()
+  @MinLength(1)
+  body!: string;
+
+  @IsOptional()
+  @IsString()
+  guestName?: string;
 }
 
 @Controller()
@@ -38,5 +48,15 @@ export class SharesController {
   @Get('public/:token')
   publicGet(@Param('token') token: string) {
     return this.shares.publicGet(token);
+  }
+
+  @Get('public/:token/comments')
+  publicComments(@Param('token') token: string) {
+    return this.shares.publicComments(token);
+  }
+
+  @Post('public/:token/comments')
+  publicComment(@Param('token') token: string, @Body() dto: PublicCommentDto) {
+    return this.shares.publicComment(token, dto.body, dto.guestName);
   }
 }

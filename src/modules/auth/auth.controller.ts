@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt.guard';
@@ -23,6 +23,20 @@ class RefreshDto {
   refreshToken!: string;
 }
 
+class ResetRequestDto {
+  @IsEmail()
+  email!: string;
+}
+
+class ResetDto {
+  @IsString()
+  token!: string;
+
+  @IsString()
+  @MinLength(6)
+  password!: string;
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
@@ -33,8 +47,24 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+  login(@Body() dto: LoginDto, @Req() req: { ip?: string; headers: Record<string, string> }) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
+    return this.auth.login(dto.email, dto.password, ip);
+  }
+
+  @Get('verify')
+  verify(@Query('token') token: string) {
+    return this.auth.verifyEmail(token);
+  }
+
+  @Post('password/forgot')
+  forgot(@Body() dto: ResetRequestDto) {
+    return this.auth.requestPasswordReset(dto.email);
+  }
+
+  @Post('password/reset')
+  reset(@Body() dto: ResetDto) {
+    return this.auth.resetPassword(dto.token, dto.password);
   }
 
   @Post('refresh')

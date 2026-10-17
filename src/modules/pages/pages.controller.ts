@@ -138,15 +138,6 @@ export class PagesController {
     return this.pages.trash(req.user.id, workspaceId);
   }
 
-  @Get('workspaces/:workspaceId/search')
-  search(
-    @Req() req: { user: { id: string } },
-    @Param('workspaceId') workspaceId: string,
-    @Query('q') q = '',
-  ) {
-    return this.pages.search(req.user.id, workspaceId, q);
-  }
-
   @Post('pages')
   create(@Req() req: { user: { id: string } }, @Body() dto: CreatePageDto) {
     return this.pages.create(req.user.id, dto.workspaceId, dto);
@@ -194,6 +185,20 @@ export class PagesController {
   @Get('pages/:id/export.md')
   exportMd(@Req() req: { user: { id: string } }, @Param('id') id: string) {
     return this.pages.exportMarkdown(req.user.id, id);
+  }
+
+  @Get('pages/:id/snapshots')
+  snapshots(@Req() req: { user: { id: string } }, @Param('id') id: string) {
+    return this.pages.listSnapshots(req.user.id, id);
+  }
+
+  @Post('pages/:id/snapshots/:snapshotId/restore')
+  restoreSnapshot(
+    @Req() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Param('snapshotId') snapshotId: string,
+  ) {
+    return this.pages.restoreSnapshot(req.user.id, id, snapshotId);
   }
 
   @Get('templates')

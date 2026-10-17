@@ -10,5 +10,23 @@ services:
     volumes:
       - nf_pg:/var/lib/postgresql/data
 
+  # MinIO image may be blocked in some networks — API falls back to local ./uploads
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: noteforge_meili_dev_key
+    ports:
+      - "7700:7700"
+    volumes:
+      - nf_meili:/meili_data
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
 volumes:
   nf_pg:
+  nf_meili:

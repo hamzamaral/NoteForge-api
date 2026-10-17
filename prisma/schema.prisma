@@ -25,17 +25,24 @@ enum SharePermission {
 }
 
 model User {
-  id           String             @id @default(uuid())
-  email        String             @unique
-  passwordHash String
-  fullName     String
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  memberships  WorkspaceMember[]
-  refreshTokens RefreshToken[]
-  assignedTasks Task[]            @relation("TaskAssignee")
-  comments     Comment[]
-  favorites    Favorite[]
+  id               String             @id @default(uuid())
+  email            String             @unique
+  passwordHash     String
+  fullName         String
+  emailVerifiedAt  DateTime?
+  verifyToken      String?
+  resetToken       String?
+  resetExpiresAt   DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  memberships      WorkspaceMember[]
+  refreshTokens    RefreshToken[]
+  assignedTasks    Task[]             @relation("TaskAssignee")
+  comments         Comment[]
+  favorites        Favorite[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  files            FileAsset[]
 }
 
 model RefreshToken {
@@ -59,6 +66,9 @@ model Workspace {
   tasks     Task[]
   databases Database[]
   shares    PageShare[]
+  notifications Notification[]
+  auditLogs AuditLog[]
+  files     FileAsset[]
 }
 
 model WorkspaceMember {
@@ -75,29 +85,32 @@ model WorkspaceMember {
 }
 
 model Page {
-  id          String     @id @default(uuid())
-  workspaceId String
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  parentId    String?
-  parent      Page?      @relation("PageTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children    Page[]     @relation("PageTree")
-  title       String     @default("Adsız")
-  icon        String?
-  contentVersion Int     @default(1)
-  isFavorite  Boolean    @default(false)
-  isTemplate  Boolean    @default(false)
-  templateKey String?
-  trashedAt   DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  blocks      Block[]
-  tasks       Task[]
-  linksFrom   PageLink[] @relation("LinkFrom")
-  linksTo     PageLink[] @relation("LinkTo")
-  shares      PageShare[]
-  comments    Comment[]
-  favorites   Favorite[]
-  database    Database?
+  id             String     @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parentId       String?
+  parent         Page?      @relation("PageTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Page[]     @relation("PageTree")
+  title          String     @default("Adsız")
+  icon           String?
+  coverUrl       String?
+  contentVersion Int        @default(1)
+  isFavorite     Boolean    @default(false)
+  isTemplate     Boolean    @default(false)
+  templateKey    String?
+  trashedAt      DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  blocks         Block[]
+  tasks          Task[]
+  linksFrom      PageLink[] @relation("LinkFrom")
+  linksTo        PageLink[] @relation("LinkTo")
+  shares         PageShare[]
+  comments       Comment[]
+  favorites      Favorite[]
+  database       Database?
+  snapshots      PageSnapshot[]
+  rowAsPage      DatabaseRow? @relation("RowAsPage")
 
   @@index([workspaceId, parentId])
   @@index([workspaceId, trashedAt])
@@ -121,15 +134,27 @@ model Block {
 }
 
 model PageLink {
-  id           String   @id @default(uuid())
-  fromPageId   String
-  fromPage     Page     @relation("LinkFrom", fields: [fromPageId], references: [id], onDelete: Cascade)
-  toPageId     String
-  toPage       Page     @relation("LinkTo", fields: [toPageId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
+  id         String   @id @default(uuid())
+  fromPageId String
+  fromPage   Page     @relation("LinkFrom", fields: [fromPageId], references: [id], onDelete: Cascade)
+  toPageId   String
+  toPage     Page     @relation("LinkTo", fields: [toPageId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 
   @@unique([fromPageId, toPageId])
   @@index([toPageId])
+}
+
+model PageSnapshot {
+  id        String   @id @default(uuid())
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  version   Int
+  title     String
+  blocks    Json
+  createdAt DateTime @default(now())
+
+  @@index([pageId, createdAt])
 }
 
 model Task {
@@ -149,6 +174,7 @@ model Task {
 
   @@index([workspaceId, pageId])
   @@index([workspaceId, status])
+  @@index([assigneeId, dueAt])
 }
 
 model Database {
@@ -183,6 +209,8 @@ model DatabaseRow {
   database   Database @relation(fields: [databaseId], references: [id], onDelete: Cascade)
   values     Json     @default("{}")
   sortOrder  Float    @default(0)
+  pageId     String?  @unique
+  page       Page?    @relation("RowAsPage", fields: [pageId], references: [id], onDelete: SetNull)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -247,4 +275,59 @@ model SystemSetting {
   value     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  body        String?
+  href        String?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([workspaceId])
+}
+
+model FileAsset {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploaderId  String
+  uploader    User      @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  key         String
+  url         String
+  mime        String
+  size        Int
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId     String?
+  actor       User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action      String
+  meta        Json      @default("{}")
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  email     String
+  ip        String?
+  ok        Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
 }

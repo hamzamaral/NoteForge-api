@@ -30,6 +30,10 @@ class CreateTaskDto {
   @IsOptional()
   @IsString()
   dueAt?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assigneeId?: string;
 }
 
 class UpdateTaskDto {
@@ -50,6 +54,11 @@ class UpdateTaskDto {
   @IsOptional()
   @Allow()
   pageId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID()
+  assigneeId?: string | null;
 }
 
 @Controller('tasks')

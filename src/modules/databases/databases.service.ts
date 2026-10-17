@@ -1,9 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
 
-const PROP_TYPES = new Set(['text', 'number', 'select', 'date']);
+const PROP_TYPES = new Set([
+  'text',
+  'number',
+  'select',
+  'multi_select',
+  'date',
+  'checkbox',
+  'url',
+  'person',
+  'files',
+]);
 
 @Injectable()
 export class DatabasesService {
@@ -13,7 +23,7 @@ export class DatabasesService {
   ) {}
 
   async create(userId: string, workspaceId: string, name?: string) {
-    await this.access.assertMember(userId, workspaceId);
+    await this.access.assertMember(userId, workspaceId, Role.EDITOR);
     return this.prisma.$transaction(async (tx) => {
       const page = await tx.page.create({
         data: {
@@ -58,6 +68,21 @@ export class DatabasesService {
                 name: 'Board',
                 type: 'board',
                 config: { groupBy: 'Durum', filter: {} },
+              },
+              {
+                name: 'Takvim',
+                type: 'calendar',
+                config: { dateProp: 'Tarih' },
+              },
+              {
+                name: 'Galeri',
+                type: 'gallery',
+                config: { titleProp: 'Ad' },
+              },
+              {
+                name: 'Liste',
+                type: 'list',
+                config: {},
               },
             ],
           },
@@ -150,7 +175,7 @@ export class DatabasesService {
       include: { database: true },
     });
     if (!prop) throw new NotFoundException();
-    await this.access.assertMember(userId, prop.database.workspaceId);
+    await this.access.assertMember(userId, prop.database.workspaceId, Role.EDITOR);
     if (prop.name === 'Ad') {
       throw new BadRequestException('Ad kolonu silinemez');
     }
@@ -194,13 +219,43 @@ export class DatabasesService {
     });
   }
 
+  async openRowAsPage(userId: string, rowId: string) {
+    const row = await this.prisma.databaseRow.findUnique({
+      where: { id: rowId },
+      include: { database: true },
+    });
+    if (!row) throw new NotFoundException();
+    await this.access.assertMember(userId, row.database.workspaceId, Role.EDITOR);
+    if (row.pageId) return this.prisma.page.findUnique({ where: { id: row.pageId } });
+    const title = String((row.values as Record<string, unknown>).Ad || 'Satır');
+    const page = await this.prisma.page.create({
+      data: {
+        workspaceId: row.database.workspaceId,
+        parentId: row.database.pageId,
+        title,
+        blocks: {
+          create: {
+            type: 'paragraph',
+            sortOrder: 1,
+            props: { text: `DB satırı: ${title}` },
+          },
+        },
+      },
+    });
+    await this.prisma.databaseRow.update({
+      where: { id: rowId },
+      data: { pageId: page.id },
+    });
+    return page;
+  }
+
   async updateRow(userId: string, rowId: string, values: Record<string, unknown>) {
     const row = await this.prisma.databaseRow.findUnique({
       where: { id: rowId },
       include: { database: true },
     });
     if (!row) throw new NotFoundException();
-    await this.access.assertMember(userId, row.database.workspaceId);
+    await this.access.assertMember(userId, row.database.workspaceId, Role.EDITOR);
     return this.prisma.databaseRow.update({
       where: { id: rowId },
       data: { values: values as Prisma.InputJsonValue },
@@ -213,7 +268,7 @@ export class DatabasesService {
       include: { database: true },
     });
     if (!row) throw new NotFoundException();
-    await this.access.assertMember(userId, row.database.workspaceId);
+    await this.access.assertMember(userId, row.database.workspaceId, Role.EDITOR);
     await this.prisma.databaseRow.delete({ where: { id: rowId } });
     return { ok: true };
   }
@@ -228,7 +283,7 @@ export class DatabasesService {
       include: { database: true },
     });
     if (!view) throw new NotFoundException();
-    await this.access.assertMember(userId, view.database.workspaceId);
+    await this.access.assertMember(userId, view.database.workspaceId, Role.EDITOR);
     return this.prisma.databaseView.update({
       where: { id: viewId },
       data: {

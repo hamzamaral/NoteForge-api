@@ -7,7 +7,18 @@ export class HealthController {
 
   @Get()
   async check() {
-    await this.prisma.$queryRaw`SELECT 1`;
-    return { status: 'ok' };
+    let db: 'up' | 'down' = 'down';
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      db = 'up';
+    } catch {
+      db = 'down';
+    }
+    return {
+      status: db === 'up' ? 'ok' : 'degraded',
+      db,
+      syncRooms: (global as { __nfSyncRoomCount?: number }).__nfSyncRoomCount ?? 0,
+      ts: new Date().toISOString(),
+    };
   }
 }

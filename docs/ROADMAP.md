@@ -2,12 +2,16 @@
 
 | Faz | İçerik | Durum |
 |-----|--------|-------|
-| 0 | İskelet, docs, Cursor rules, seed | ship |
-| 1 | TipTap, slash, autosave, tree, trash | ship + deepen (image, ↑↓, breadcrumb, presence UI) |
-| 2 | Nested pages, tasks, backlinks | ship + deepen (@ mention, move, cycle guard, due) |
-| 3 | Excalidraw, templates, MD export | ship + deepen (gallery, MD import, favorites, recent) |
-| 4 | Database table/board | ship + deepen (props CRUD, filter/sort, board drag) |
-| 5 | Share links, comments, invites | ship + deepen (revoke share, remove member, comment ACL) |
-| 6 | Socket presence + Yjs relay | ship + deepen (JWT, room Y.Doc, TipTap caret) |
-| 7 | Search, INTERVIEW polish, README | ship + deepen (Ctrl+K, snippets, ADR 0003) |
-| 8 | UX polish (recents, save, dates, DB copy) | ship |
+| 0–8 | Core product (notes, tasks, DB, share, sync, search, UX) | ship |
+| 9 | `assertMember(minRole)`, sync join ACL, login rate limit, verify/reset | ship |
+| 10 | Yjs rooms with membership + TTL; TipTap Collaboration client | ship |
+| 11 | `POST /files/upload` → local `./uploads` (MinIO optional) | ship |
+| 12 | Meilisearch index + kind filter; ILIKE fallback | ship |
+| 13 | Prop types (multi_select, checkbox, url, person, files); views; row→page | ship |
+| 14 | `Notification` + comment/mention notify; task assignee/due | ship |
+| 15 | `PageSnapshot` list/restore; editor callout/toggle | ship |
+| 16 | Jest unit + e2e health; CI lint/test/build | ship |
+| 17 | (web) mobile nav + a11y | ship |
+| 18 | AuditLog, ZIP export, SystemSetting, pino-http, trash purge job | ship |
+
+Docker (local): Postgres + Meilisearch + Mailhog. MinIO optional — API uses disk fallback.

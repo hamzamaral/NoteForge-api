@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
 
@@ -130,7 +130,7 @@ export class PagesService {
     workspaceId: string,
     data: { title?: string; parentId?: string; templateKey?: string },
   ) {
-    await this.access.assertMember(userId, workspaceId);
+    await this.access.assertMember(userId, workspaceId, Role.EDITOR);
     const tpl = TEMPLATES[data.templateKey || 'blank'] || TEMPLATES.blank;
     return this.prisma.page.create({
       data: {
@@ -155,7 +155,7 @@ export class PagesService {
     pageId: string,
     data: { title?: string; icon?: string; parentId?: string | null; isFavorite?: boolean },
   ) {
-    const page = await this.access.assertPageAccess(userId, pageId);
+    const page = await this.access.assertPageWrite(userId, pageId);
     if (data.parentId !== undefined && data.parentId !== null) {
       if (data.parentId === pageId) {
         throw new BadRequestException('Sayfa kendi altına taşınamaz');
@@ -193,7 +193,7 @@ export class PagesService {
   }
 
   async softDelete(userId: string, pageId: string) {
-    await this.access.assertPageAccess(userId, pageId);
+    await this.access.assertPageWrite(userId, pageId);
     return this.prisma.page.update({
       where: { id: pageId },
       data: { trashedAt: new Date() },
@@ -203,7 +203,7 @@ export class PagesService {
   async restore(userId: string, pageId: string) {
     const page = await this.prisma.page.findUnique({ where: { id: pageId } });
     if (!page) throw new NotFoundException();
-    await this.access.assertMember(userId, page.workspaceId);
+    await this.access.assertMember(userId, page.workspaceId, Role.EDITOR);
     return this.prisma.page.update({
       where: { id: pageId },
       data: { trashedAt: null },
@@ -217,7 +217,7 @@ export class PagesService {
     blocks: { id?: string; type: string; props: object; sortOrder: number; parentBlockId?: string | null }[],
     links?: { toPageId: string }[],
   ) {
-    const page = await this.access.assertPageAccess(userId, pageId);
+    const page = await this.access.assertPageWrite(userId, pageId);
     if (page.contentVersion !== expectedVersion) {
       throw new ConflictException({
         message: 'Sürüm çakışması',
@@ -255,9 +255,53 @@ export class PagesService {
           });
         }
       }
+      // Snapshot every save (keep last 20)
+      await tx.pageSnapshot.create({
+        data: {
+          pageId,
+          version: page.contentVersion + 1,
+          title: page.title,
+          blocks: blocks as unknown as Prisma.InputJsonValue,
+        },
+      });
+      const old = await tx.pageSnapshot.findMany({
+        where: { pageId },
+        orderBy: { createdAt: 'desc' },
+        skip: 20,
+        select: { id: true },
+      });
+      if (old.length) {
+        await tx.pageSnapshot.deleteMany({ where: { id: { in: old.map((o) => o.id) } } });
+      }
     });
 
     return this.get(userId, pageId);
+  }
+
+  async listSnapshots(userId: string, pageId: string) {
+    await this.access.assertPageAccess(userId, pageId);
+    return this.prisma.pageSnapshot.findMany({
+      where: { pageId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, version: true, title: true, createdAt: true },
+    });
+  }
+
+  async restoreSnapshot(userId: string, pageId: string, snapshotId: string) {
+    await this.access.assertPageWrite(userId, pageId);
+    const snap = await this.prisma.pageSnapshot.findFirst({
+      where: { id: snapshotId, pageId },
+    });
+    if (!snap) throw new NotFoundException('Snapshot yok');
+    const blocks = snap.blocks as unknown as {
+      id?: string;
+      type: string;
+      props: object;
+      sortOrder: number;
+    }[];
+    const page = await this.prisma.page.findUniqueOrThrow({ where: { id: pageId } });
+    return this.saveBlocks(userId, pageId, page.contentVersion, blocks, []);
   }
 
   listTemplates() {
@@ -271,7 +315,7 @@ export class PagesService {
     title?: string,
     parentId?: string,
   ) {
-    await this.access.assertMember(userId, workspaceId);
+    await this.access.assertMember(userId, workspaceId, Role.EDITOR);
     const blocks = markdownToBlocks(markdown);
     const derivedTitle =
       title ||

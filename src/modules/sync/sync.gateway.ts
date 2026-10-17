@@ -12,6 +12,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 import * as Y from 'yjs';
+import { PrismaService } from '../../prisma/prisma.service';
+import { Role } from '@prisma/client';
 
 type Presence = {
   userId: string;
@@ -47,11 +49,15 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(SyncGateway.name);
   private presence = new Map<string, Presence>();
+  /** In-memory Y.Doc per page — kept after last peer leaves (durable room memory). */
   private rooms = new Map<string, Y.Doc>();
+  private roomEmptyTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly ROOM_TTL_MS = 30 * 60 * 1000;
 
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -79,12 +85,32 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('joinPage')
-  joinPage(
+  async joinPage(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { pageId: string; name?: string },
   ) {
     const user = client.data.user as { userId: string; email: string } | undefined;
     if (!user?.userId || !data?.pageId) return { ok: false };
+
+    const page = await this.prisma.page.findUnique({
+      where: { id: data.pageId },
+      select: { workspaceId: true, trashedAt: true },
+    });
+    if (!page || page.trashedAt) {
+      client.emit('error', { message: 'Sayfa bulunamadı' });
+      return { ok: false };
+    }
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: page.workspaceId, userId: user.userId },
+      },
+    });
+    if (!member) {
+      client.emit('error', { message: 'Workspace erişimi yok' });
+      return { ok: false };
+    }
+    client.data.role = member.role;
+    client.data.canEdit = member.role === Role.EDITOR || member.role === Role.OWNER;
 
     const prev = this.presence.get(client.id);
     if (prev && prev.pageId !== data.pageId) {
@@ -106,12 +132,12 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
     this.broadcastPresence(data.pageId);
 
-    // Seed sync: send current room state to joiner
+    this.cancelRoomCleanup(data.pageId);
     const doc = this.getDoc(data.pageId);
     const update = Y.encodeStateAsUpdate(doc);
     client.emit('yjsSync', { pageId: data.pageId, update: uint8ToB64(update) });
 
-    return { ok: true, color };
+    return { ok: true, color, canEdit: client.data.canEdit as boolean };
   }
 
   @SubscribeMessage('leavePage')
@@ -139,6 +165,7 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const p = this.presence.get(client.id);
     if (!p || p.pageId !== data.pageId || !data.update) return;
+    if (!client.data.canEdit) return;
     try {
       const doc = this.getDoc(data.pageId);
       Y.applyUpdate(doc, b64ToUint8(data.update));
@@ -183,8 +210,38 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!doc) {
       doc = new Y.Doc();
       this.rooms.set(pageId, doc);
+      this.publishRoomMetrics();
     }
     return doc;
+  }
+
+  private publishRoomMetrics() {
+    (global as { __nfSyncRoomCount?: number }).__nfSyncRoomCount = this.rooms.size;
+  }
+
+  /** When the room is empty, keep Y.Doc in `rooms` and optionally purge after TTL. */
+  private scheduleRoomCleanup(pageId: string) {
+    const prev = this.roomEmptyTimers.get(pageId);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      this.roomEmptyTimers.delete(pageId);
+      const still = [...this.presence.values()].some((x) => x.pageId === pageId);
+      if (still) return;
+      const doc = this.rooms.get(pageId);
+      doc?.destroy();
+      this.rooms.delete(pageId);
+      this.publishRoomMetrics();
+      this.logger.debug(`Y.Doc evicted after idle TTL page=${pageId}`);
+    }, SyncGateway.ROOM_TTL_MS);
+    this.roomEmptyTimers.set(pageId, timer);
+  }
+
+  private cancelRoomCleanup(pageId: string) {
+    const t = this.roomEmptyTimers.get(pageId);
+    if (t) {
+      clearTimeout(t);
+      this.roomEmptyTimers.delete(pageId);
+    }
   }
 
   private leaveAll(client: Socket) {
@@ -193,12 +250,9 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (p) {
       void client.leave(`page:${p.pageId}`);
       this.broadcastPresence(p.pageId);
-      // Drop empty room docs after last peer leaves (memory)
       const still = [...this.presence.values()].some((x) => x.pageId === p.pageId);
       if (!still) {
-        const doc = this.rooms.get(p.pageId);
-        doc?.destroy();
-        this.rooms.delete(p.pageId);
+        this.scheduleRoomCleanup(p.pageId);
       }
     }
   }

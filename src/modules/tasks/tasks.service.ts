@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { TaskStatus } from '@prisma/client';
+import { Role, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
 
@@ -21,15 +21,22 @@ export class TasksService {
 
   async create(
     userId: string,
-    data: { workspaceId: string; pageId?: string; title: string; dueAt?: string },
+    data: {
+      workspaceId: string;
+      pageId?: string;
+      title: string;
+      dueAt?: string;
+      assigneeId?: string;
+    },
   ) {
-    await this.access.assertMember(userId, data.workspaceId);
+    await this.access.assertMember(userId, data.workspaceId, Role.EDITOR);
     return this.prisma.task.create({
       data: {
         workspaceId: data.workspaceId,
         pageId: data.pageId,
         title: data.title,
         dueAt: data.dueAt ? new Date(data.dueAt) : null,
+        assigneeId: data.assigneeId || null,
       },
     });
   }
@@ -37,11 +44,17 @@ export class TasksService {
   async update(
     userId: string,
     id: string,
-    data: { title?: string; status?: TaskStatus; dueAt?: string | null; pageId?: string | null },
+    data: {
+      title?: string;
+      status?: TaskStatus;
+      dueAt?: string | null;
+      pageId?: string | null;
+      assigneeId?: string | null;
+    },
   ) {
     const task = await this.prisma.task.findUnique({ where: { id } });
     if (!task) return null;
-    await this.access.assertMember(userId, task.workspaceId);
+    await this.access.assertMember(userId, task.workspaceId, Role.EDITOR);
     return this.prisma.task.update({
       where: { id },
       data: {
@@ -49,6 +62,7 @@ export class TasksService {
         status: data.status,
         dueAt: data.dueAt === undefined ? undefined : data.dueAt ? new Date(data.dueAt) : null,
         pageId: data.pageId,
+        assigneeId: data.assigneeId === undefined ? undefined : data.assigneeId,
       },
     });
   }
@@ -56,7 +70,7 @@ export class TasksService {
   async remove(userId: string, id: string) {
     const task = await this.prisma.task.findUnique({ where: { id } });
     if (!task) return null;
-    await this.access.assertMember(userId, task.workspaceId);
+    await this.access.assertMember(userId, task.workspaceId, Role.EDITOR);
     return this.prisma.task.delete({ where: { id } });
   }
 }

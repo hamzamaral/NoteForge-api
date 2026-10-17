@@ -10,14 +10,18 @@ export class WorkspacesService {
     private readonly access: WorkspaceAccessService,
   ) {}
 
-  listForUser(userId: string) {
-    return this.prisma.workspace.findMany({
+  async listForUser(userId: string) {
+    const rows = await this.prisma.workspace.findMany({
       where: { members: { some: { userId } } },
       include: {
         members: { include: { user: { select: { id: true, email: true, fullName: true } } } },
       },
       orderBy: { createdAt: 'asc' },
     });
+    return rows.map((w) => ({
+      ...w,
+      myRole: w.members.find((m) => m.userId === userId)?.role ?? null,
+    }));
   }
 
   async create(userId: string, name: string) {
@@ -55,12 +59,21 @@ export class WorkspacesService {
     }
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new NotFoundException('Kullanıcı yok — önce kayıt olsun');
-    return this.prisma.workspaceMember.upsert({
+    const member = await this.prisma.workspaceMember.upsert({
       where: { workspaceId_userId: { workspaceId, userId: user.id } },
       create: { workspaceId, userId: user.id, role },
       update: { role },
       include: { user: { select: { id: true, email: true, fullName: true } } },
     });
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId,
+        actorId: userId,
+        action: 'invite',
+        meta: { email, role, memberUserId: user.id },
+      },
+    });
+    return member;
   }
 
   async removeMember(actorId: string, workspaceId: string, memberUserId: string) {

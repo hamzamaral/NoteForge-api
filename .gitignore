@@ -6,3 +6,6 @@ coverage
 AGENT_HANDOFF.md
 .DS_Store
 *.tsbuildinfo
+
+uploads/
+*.tsbuildinfo

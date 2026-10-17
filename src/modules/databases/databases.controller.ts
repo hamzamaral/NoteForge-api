@@ -90,6 +90,11 @@ export class DatabasesController {
     return this.databases.deleteRow(req.user.id, rowId);
   }
 
+  @Post('rows/:rowId/open-page')
+  openRowPage(@Req() req: { user: { id: string } }, @Param('rowId') rowId: string) {
+    return this.databases.openRowAsPage(req.user.id, rowId);
+  }
+
   @Patch('views/:viewId')
   updateView(
     @Req() req: { user: { id: string } },

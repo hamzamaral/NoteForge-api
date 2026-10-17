@@ -11,6 +11,10 @@ import { DatabasesModule } from './modules/databases/databases.module';
 import { SharesModule } from './modules/shares/shares.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { FilesModule } from './modules/files/files.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SearchModule } from './modules/search/search.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -25,6 +29,10 @@ import { HealthController } from './health.controller';
     SharesModule,
     CommentsModule,
     SyncModule,
+    FilesModule,
+    NotificationsModule,
+    SearchModule,
+    AdminModule,
   ],
   controllers: [HealthController],
   providers: [

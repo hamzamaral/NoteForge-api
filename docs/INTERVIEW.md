@@ -1,7 +1,7 @@
 # NoteForge — Interview Guide
 
 ## 60-second pitch
-NoteForge is a Notion-inspired knowledge OS: **block-based pages** (not a Markdown blob), page-linked **tasks**, **Excalidraw** drawings, **database** table/board, share links, comments, and **Yjs realtime** over Socket.IO. NestJS + Prisma API, React + TipTap web, workspace ACL. Built in deliberate phases so each layer is demoable alone.
+NoteForge is a Notion-inspired knowledge OS: **block-based pages** (not a Markdown blob), page-linked **tasks**, **Excalidraw** drawings, **rich databases**, share links, comments, **Meilisearch**, notifications, file uploads, and **Yjs + TipTap Collaboration** over Socket.IO. NestJS + Prisma API, React web, role ACL (VIEWER/EDITOR/OWNER). Phases 0–18 ship for local/demo; no prod deploy.
 
 ## Demo walkthrough (5 min)
 1. Login `admin@noteforge.local` / `Admin123!`
