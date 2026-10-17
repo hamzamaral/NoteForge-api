@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
+
+const PROP_TYPES = new Set(['text', 'number', 'select', 'date']);
 
 @Injectable()
 export class DatabasesService {
@@ -18,11 +20,15 @@ export class DatabasesService {
           workspaceId,
           title: name || 'Veritabanı',
           blocks: {
-            create: { type: 'paragraph', sortOrder: 1, props: { text: 'Veritabanı sayfası' } },
+            create: {
+              type: 'paragraph',
+              sortOrder: 1,
+              props: { text: 'Veritabanı sayfası — tablo / board görünümleri' },
+            },
           },
         },
       });
-      const db = await tx.database.create({
+      return tx.database.create({
         data: {
           workspaceId,
           pageId: page.id,
@@ -30,25 +36,46 @@ export class DatabasesService {
           properties: {
             create: [
               { name: 'Ad', type: 'text', sortOrder: 1 },
-              { name: 'Durum', type: 'select', options: ['Yeni', 'Devam', 'Bitti'], sortOrder: 2 },
-              { name: 'Tarih', type: 'date', sortOrder: 3 },
+              {
+                name: 'Durum',
+                type: 'select',
+                options: ['Yeni', 'Devam', 'Bitti'],
+                sortOrder: 2,
+              },
+              { name: 'Öncelik', type: 'select', options: ['Düşük', 'Orta', 'Yüksek'], sortOrder: 3 },
+              { name: 'Skor', type: 'number', sortOrder: 4 },
+              { name: 'Tarih', type: 'date', sortOrder: 5 },
             ],
           },
           views: {
             create: [
-              { name: 'Tablo', type: 'table', config: {} },
-              { name: 'Board', type: 'board', config: { groupBy: 'Durum' } },
+              {
+                name: 'Tablo',
+                type: 'table',
+                config: { sortBy: 'Ad', sortDir: 'asc', filter: {} },
+              },
+              {
+                name: 'Board',
+                type: 'board',
+                config: { groupBy: 'Durum', filter: {} },
+              },
             ],
           },
           rows: {
             create: [
-              { values: { Ad: 'Örnek satır', Durum: 'Yeni' }, sortOrder: 1 },
+              {
+                values: { Ad: 'Örnek satır', Durum: 'Yeni', Öncelik: 'Orta', Skor: 1 },
+                sortOrder: 1,
+              },
+              {
+                values: { Ad: 'İkinci örnek', Durum: 'Devam', Öncelik: 'Yüksek', Skor: 3 },
+                sortOrder: 2,
+              },
             ],
           },
         },
         include: { properties: true, views: true, rows: true, page: true },
       });
-      return db;
     });
   }
 
@@ -69,7 +96,7 @@ export class DatabasesService {
 
   async byPage(userId: string, pageId: string) {
     const page = await this.access.assertPageAccess(userId, pageId);
-    const db = await this.prisma.database.findUnique({
+    return this.prisma.database.findUnique({
       where: { pageId: page.id },
       include: {
         properties: { orderBy: { sortOrder: 'asc' } },
@@ -77,15 +104,91 @@ export class DatabasesService {
         rows: { orderBy: { sortOrder: 'asc' } },
       },
     });
-    return db;
+  }
+
+  async rename(userId: string, databaseId: string, name: string) {
+    const db = await this.get(userId, databaseId);
+    const updated = await this.prisma.database.update({
+      where: { id: db.id },
+      data: { name },
+    });
+    await this.prisma.page.update({
+      where: { id: db.pageId },
+      data: { title: name },
+    });
+    return updated;
+  }
+
+  async addProperty(
+    userId: string,
+    databaseId: string,
+    data: { name: string; type: string; options?: string[] },
+  ) {
+    const db = await this.get(userId, databaseId);
+    if (!PROP_TYPES.has(data.type)) {
+      throw new BadRequestException('Geçersiz property tipi');
+    }
+    const name = data.name.trim();
+    if (!name) throw new BadRequestException('İsim gerekli');
+    if (db.properties.some((p) => p.name === name)) {
+      throw new BadRequestException('Bu isimde kolon zaten var');
+    }
+    return this.prisma.databaseProperty.create({
+      data: {
+        databaseId: db.id,
+        name,
+        type: data.type,
+        options: (data.options || []) as Prisma.InputJsonValue,
+        sortOrder: Date.now(),
+      },
+    });
+  }
+
+  async deleteProperty(userId: string, propertyId: string) {
+    const prop = await this.prisma.databaseProperty.findUnique({
+      where: { id: propertyId },
+      include: { database: true },
+    });
+    if (!prop) throw new NotFoundException();
+    await this.access.assertMember(userId, prop.database.workspaceId);
+    if (prop.name === 'Ad') {
+      throw new BadRequestException('Ad kolonu silinemez');
+    }
+    const rows = await this.prisma.databaseRow.findMany({
+      where: { databaseId: prop.databaseId },
+    });
+    await this.prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        const values = { ...(row.values as Record<string, unknown>) };
+        delete values[prop.name];
+        await tx.databaseRow.update({
+          where: { id: row.id },
+          data: { values: values as Prisma.InputJsonValue },
+        });
+      }
+      await tx.databaseProperty.delete({ where: { id: propertyId } });
+    });
+    return { ok: true };
   }
 
   async addRow(userId: string, databaseId: string, values: Record<string, unknown>) {
     const db = await this.get(userId, databaseId);
+    const defaults: Record<string, unknown> = {};
+    for (const p of db.properties) {
+      if (values[p.name] !== undefined) continue;
+      if (p.type === 'select') {
+        const opts = (p.options as string[]) || [];
+        defaults[p.name] = opts[0] || '';
+      } else if (p.type === 'number') {
+        defaults[p.name] = 0;
+      } else {
+        defaults[p.name] = p.name === 'Ad' ? 'Yeni' : '';
+      }
+    }
     return this.prisma.databaseRow.create({
       data: {
         databaseId: db.id,
-        values: values as Prisma.InputJsonValue,
+        values: { ...defaults, ...values } as Prisma.InputJsonValue,
         sortOrder: Date.now(),
       },
     });
@@ -104,10 +207,21 @@ export class DatabasesService {
     });
   }
 
+  async deleteRow(userId: string, rowId: string) {
+    const row = await this.prisma.databaseRow.findUnique({
+      where: { id: rowId },
+      include: { database: true },
+    });
+    if (!row) throw new NotFoundException();
+    await this.access.assertMember(userId, row.database.workspaceId);
+    await this.prisma.databaseRow.delete({ where: { id: rowId } });
+    return { ok: true };
+  }
+
   async updateView(
     userId: string,
     viewId: string,
-    config: Record<string, unknown>,
+    data: { config?: Record<string, unknown>; name?: string },
   ) {
     const view = await this.prisma.databaseView.findUnique({
       where: { id: viewId },
@@ -117,7 +231,12 @@ export class DatabasesService {
     await this.access.assertMember(userId, view.database.workspaceId);
     return this.prisma.databaseView.update({
       where: { id: viewId },
-      data: { config: config as Prisma.InputJsonValue },
+      data: {
+        name: data.name,
+        config: data.config
+          ? ({ ...(view.config as object), ...data.config } as Prisma.InputJsonValue)
+          : undefined,
+      },
     });
   }
 }
