@@ -5,3 +5,4 @@ coverage
 *.log
 AGENT_HANDOFF.md
 .DS_Store
+*.tsbuildinfo

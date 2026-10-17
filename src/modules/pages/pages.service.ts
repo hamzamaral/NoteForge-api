@@ -340,33 +340,146 @@ export class PagesService {
   async search(userId: string, workspaceId: string, q: string) {
     await this.access.assertMember(userId, workspaceId);
     const needle = q.trim();
-    if (!needle) return [];
+    if (needle.length < 2) return [];
+
+    type Hit = {
+      id: string;
+      title: string;
+      icon: string | null;
+      updatedAt: Date;
+      match: 'title' | 'content' | 'task';
+      snippet: string | null;
+      score: number;
+    };
+    const byId = new Map<string, Hit>();
+
     const byTitle = await this.prisma.page.findMany({
       where: {
         workspaceId,
         trashedAt: null,
         title: { contains: needle, mode: 'insensitive' },
       },
-      take: 30,
+      take: 40,
       select: { id: true, title: true, icon: true, updatedAt: true },
     });
-    const blocks = await this.prisma.$queryRaw<{ pageId: string }[]>`
-      SELECT DISTINCT b."pageId" AS "pageId"
+    for (const p of byTitle) {
+      byId.set(p.id, {
+        id: p.id,
+        title: p.title,
+        icon: p.icon,
+        updatedAt: p.updatedAt,
+        match: 'title',
+        snippet: null,
+        score: 100 + (p.title.toLowerCase().startsWith(needle.toLowerCase()) ? 20 : 0),
+      });
+    }
+
+    const contentHits = await this.prisma.$queryRaw<
+      { pageId: string; props: string; type: string }[]
+    >`
+      SELECT b."pageId" AS "pageId", b.props::text AS props, b.type AS type
       FROM "Block" b
       JOIN "Page" p ON p.id = b."pageId"
       WHERE p."workspaceId" = ${workspaceId}
         AND p."trashedAt" IS NULL
         AND b.props::text ILIKE ${'%' + needle + '%'}
-      LIMIT 30
+      LIMIT 60
     `;
-    const extraIds = blocks.map((b) => b.pageId).filter((id) => !byTitle.some((p) => p.id === id));
-    const extra = extraIds.length
-      ? await this.prisma.page.findMany({
-          where: { id: { in: extraIds } },
-          select: { id: true, title: true, icon: true, updatedAt: true },
-        })
-      : [];
-    return [...byTitle, ...extra];
+    for (const row of contentHits) {
+      const snippet = makeSnippet(row.props, needle);
+      const existing = byId.get(row.pageId);
+      if (existing) {
+        if (!existing.snippet && snippet) existing.snippet = snippet;
+        continue;
+      }
+      byId.set(row.pageId, {
+        id: row.pageId,
+        title: '',
+        icon: null,
+        updatedAt: new Date(0),
+        match: 'content',
+        snippet,
+        score: 50,
+      });
+    }
+
+    const missing = [...byId.values()].filter((h) => !h.title);
+    if (missing.length) {
+      const pages = await this.prisma.page.findMany({
+        where: { id: { in: missing.map((m) => m.id) } },
+        select: { id: true, title: true, icon: true, updatedAt: true },
+      });
+      for (const p of pages) {
+        const hit = byId.get(p.id);
+        if (!hit) continue;
+        hit.title = p.title;
+        hit.icon = p.icon;
+        hit.updatedAt = p.updatedAt;
+      }
+    }
+
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        workspaceId,
+        title: { contains: needle, mode: 'insensitive' },
+        pageId: { not: null },
+      },
+      take: 20,
+      select: { title: true, pageId: true, status: true, page: { select: { id: true, title: true, icon: true, updatedAt: true, trashedAt: true } } },
+    });
+    for (const t of tasks) {
+      if (!t.page || t.page.trashedAt) continue;
+      const existing = byId.get(t.page.id);
+      const snippet = `Görev (${t.status}): ${t.title}`;
+      if (existing) {
+        if (!existing.snippet) existing.snippet = snippet;
+        existing.score = Math.max(existing.score, 70);
+        continue;
+      }
+      byId.set(t.page.id, {
+        id: t.page.id,
+        title: t.page.title,
+        icon: t.page.icon,
+        updatedAt: t.page.updatedAt,
+        match: 'task',
+        snippet,
+        score: 70,
+      });
+    }
+
+    return [...byId.values()]
+      .filter((h) => h.title)
+      .sort((a, b) => b.score - a.score || b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 40)
+      .map((h) => ({
+        id: h.id,
+        title: h.title,
+        icon: h.icon,
+        updatedAt: h.updatedAt,
+        match: h.match,
+        snippet: h.snippet,
+        score: h.score,
+      }));
+  }
+}
+
+function makeSnippet(propsText: string, needle: string, radius = 48): string | null {
+  try {
+    const parsed = JSON.parse(propsText) as Record<string, unknown>;
+    const text = String(parsed.text ?? parsed.alt ?? propsText);
+    const lower = text.toLowerCase();
+    const idx = lower.indexOf(needle.toLowerCase());
+    if (idx < 0) {
+      const clean = text.replace(/\s+/g, ' ').trim();
+      return clean ? clean.slice(0, radius * 2) : null;
+    }
+    const start = Math.max(0, idx - radius);
+    const end = Math.min(text.length, idx + needle.length + radius);
+    const prefix = start > 0 ? '…' : '';
+    const suffix = end < text.length ? '…' : '';
+    return `${prefix}${text.slice(start, end).replace(/\s+/g, ' ')}${suffix}`;
+  } catch {
+    return null;
   }
 }
 
