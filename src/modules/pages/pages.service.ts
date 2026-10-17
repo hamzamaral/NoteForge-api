@@ -129,11 +129,12 @@ export class PagesService {
         }
         if (seen.has(cursor)) break;
         seen.add(cursor);
-        const row = await this.prisma.page.findUnique({
-          where: { id: cursor },
-          select: { parentId: true },
-        });
-        cursor = row?.parentId ?? null;
+        const ancestor: { parentId: string | null } | null =
+          await this.prisma.page.findUnique({
+            where: { id: cursor },
+            select: { parentId: true },
+          });
+        cursor = ancestor?.parentId ?? null;
       }
     }
     return this.prisma.page.update({
