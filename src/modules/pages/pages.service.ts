@@ -218,6 +218,9 @@ export class PagesService {
         case 'drawing':
           lines.push('*[çizim bloğu]*');
           break;
+        case 'image':
+          lines.push(`![${String(p.alt || 'görsel')}](${String(p.src || '')})`);
+          break;
         default:
           lines.push(text);
       }
