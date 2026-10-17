@@ -11,12 +11,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  Allow,
   IsArray,
   IsBoolean,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -65,13 +67,22 @@ class BlockDto {
   @IsString()
   type!: string;
 
-  props!: object;
+  /** Must be decorated — whitelist:true otherwise strips props and wipes notes on save */
+  @Allow()
+  props!: Record<string, unknown>;
 
   @IsNumber()
   sortOrder!: number;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
   parentBlockId?: string | null;
+}
+
+class PageLinkDto {
+  @IsUUID()
+  toPageId!: string;
 }
 
 class SaveBlocksDto {
@@ -85,7 +96,9 @@ class SaveBlocksDto {
 
   @IsOptional()
   @IsArray()
-  links?: { toPageId: string }[];
+  @ValidateNested({ each: true })
+  @Type(() => PageLinkDto)
+  links?: PageLinkDto[];
 }
 
 class ImportMdDto {
