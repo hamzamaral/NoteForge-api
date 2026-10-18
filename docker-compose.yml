@@ -10,7 +10,20 @@ services:
     volumes:
       - nf_pg:/var/lib/postgresql/data
 
-  # MinIO image may be blocked in some networks — API falls back to local ./uploads
+  # Optional: set MINIO_ENABLED=1 in .env to use object storage instead of ./uploads
+  minio:
+    image: minio/minio:latest
+    profiles: ['minio']
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: noteforge
+      MINIO_ROOT_PASSWORD: noteforgesecret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - nf_minio:/data
+
   meilisearch:
     image: getmeili/meilisearch:v1.11
     environment:
@@ -30,3 +43,4 @@ services:
 volumes:
   nf_pg:
   nf_meili:
+  nf_minio:

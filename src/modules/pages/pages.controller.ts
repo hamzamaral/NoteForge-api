@@ -52,6 +52,10 @@ class UpdatePageDto {
   icon?: string;
 
   @IsOptional()
+  @IsString()
+  coverUrl?: string | null;
+
+  @IsOptional()
   parentId?: string | null;
 
   @IsOptional()

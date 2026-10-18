@@ -24,6 +24,9 @@ const ALLOWED = new Set([
 export class FilesService implements OnModuleInit {
   private uploadRoot = join(process.cwd(), 'uploads');
   private mode: 'local' | 'minio' = 'local';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private minio: any = null;
+  private bucket = 'noteforge';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -31,9 +34,33 @@ export class FilesService implements OnModuleInit {
     private readonly config: ConfigService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
     if (!existsSync(this.uploadRoot)) mkdirSync(this.uploadRoot, { recursive: true });
-    // Prefer local disk when MinIO image unavailable in this environment
+    const endpoint = this.config.get<string>('MINIO_ENDPOINT');
+    const prefer = this.config.get<string>('MINIO_ENABLED') === '1';
+    if (prefer && endpoint) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const Minio = require('minio');
+        const port = Number(this.config.get<string>('MINIO_PORT') || 9000);
+        this.minio = new Minio.Client({
+          endPoint: endpoint,
+          port,
+          useSSL: false,
+          accessKey: this.config.get<string>('MINIO_ACCESS_KEY') || 'noteforge',
+          secretKey: this.config.get<string>('MINIO_SECRET_KEY') || 'noteforgesecret',
+        });
+        const exists = await this.minio.bucketExists(this.bucket);
+        if (!exists) await this.minio.makeBucket(this.bucket, 'us-east-1');
+        this.mode = 'minio';
+        // eslint-disable-next-line no-console
+        console.log('[files] MinIO mode', endpoint, port);
+        return;
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[files] MinIO unavailable, using local uploads', String(e));
+      }
+    }
     this.mode = 'local';
     // eslint-disable-next-line no-console
     console.log('[files] local uploads at', this.uploadRoot);
@@ -50,15 +77,26 @@ export class FilesService implements OnModuleInit {
 
     const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
     const key = `${workspaceId}/${randomUUID()}-${safe}`;
-    const dir = join(this.uploadRoot, workspaceId);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(join(this.uploadRoot, key), file.buffer);
 
-    const publicBase =
-      this.config.get<string>('PUBLIC_FILE_BASE') || '';
-    const url = publicBase
-      ? `${publicBase.replace(/\/$/, '')}/uploads/${key}`
-      : `/uploads/${key}`;
+    let url: string;
+    if (this.mode === 'minio' && this.minio) {
+      await this.minio.putObject(this.bucket, key, file.buffer, file.size, {
+        'Content-Type': file.mimetype,
+      });
+      const publicBase =
+        this.config.get<string>('MINIO_PUBLIC_URL') ||
+        `http://${this.config.get('MINIO_ENDPOINT')}:${this.config.get('MINIO_PORT') || 9000}`;
+      url = `${publicBase.replace(/\/$/, '')}/${this.bucket}/${key}`;
+    } else {
+      const dir = join(this.uploadRoot, workspaceId);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(join(this.uploadRoot, key), file.buffer);
+      const publicBase = this.config.get<string>('PUBLIC_FILE_BASE') || '';
+      url = publicBase
+        ? `${publicBase.replace(/\/$/, '')}/uploads/${key}`
+        : `/uploads/${key}`;
+    }
+
     return this.prisma.fileAsset.create({
       data: {
         workspaceId,

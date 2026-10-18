@@ -153,7 +153,13 @@ export class PagesService {
   async updateMeta(
     userId: string,
     pageId: string,
-    data: { title?: string; icon?: string; parentId?: string | null; isFavorite?: boolean },
+    data: {
+      title?: string;
+      icon?: string;
+      coverUrl?: string | null;
+      parentId?: string | null;
+      isFavorite?: boolean;
+    },
   ) {
     const page = await this.access.assertPageWrite(userId, pageId);
     if (data.parentId !== undefined && data.parentId !== null) {
@@ -186,6 +192,7 @@ export class PagesService {
       data: {
         title: data.title,
         icon: data.icon,
+        coverUrl: data.coverUrl,
         parentId: data.parentId,
         isFavorite: data.isFavorite,
       },
