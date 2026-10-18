@@ -12,13 +12,22 @@ export class SharesService {
 
   async create(userId: string, pageId: string, permission: SharePermission = SharePermission.READ) {
     const page = await this.access.assertPageWrite(userId, pageId);
-    return this.prisma.pageShare.create({
+    const share = await this.prisma.pageShare.create({
       data: {
         workspaceId: page.workspaceId,
         pageId,
         permission,
       },
     });
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: page.workspaceId,
+        actorId: userId,
+        action: 'share.create',
+        meta: { pageId, permission, token: share.token },
+      },
+    });
+    return share;
   }
 
   async list(userId: string, pageId: string) {
@@ -53,7 +62,16 @@ export class SharesService {
     const share = await this.prisma.pageShare.findUnique({ where: { id: shareId } });
     if (!share) throw new NotFoundException();
     await this.access.assertMember(userId, share.workspaceId, Role.EDITOR);
-    return this.prisma.pageShare.delete({ where: { id: shareId } });
+    await this.prisma.pageShare.delete({ where: { id: shareId } });
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: share.workspaceId,
+        actorId: userId,
+        action: 'share.revoke',
+        meta: { pageId: share.pageId, shareId },
+      },
+    });
+    return { ok: true };
   }
 
   async publicComment(token: string, body: string, guestName?: string) {

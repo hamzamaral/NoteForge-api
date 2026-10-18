@@ -16,4 +16,9 @@ describe('saveBlocks version conflict contract', () => {
     expect(RANK.VIEWER < RANK.EDITOR).toBe(true);
     expect(RANK.EDITOR < RANK.OWNER).toBe(true);
   });
+
+  it('empty props object is valid JSON for blocks', () => {
+    const props = {};
+    expect(JSON.stringify(props)).toBe('{}');
+  });
 });

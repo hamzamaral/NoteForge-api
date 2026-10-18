@@ -18,7 +18,7 @@ export class SearchController {
   }
 
   @Post('workspaces/:workspaceId/search/reindex')
-  reindex(@Param('workspaceId') workspaceId: string) {
-    return this.search.reindexWorkspace(workspaceId);
+  reindex(@Req() req: { user: { id: string } }, @Param('workspaceId') workspaceId: string) {
+    return this.search.reindexWorkspace(req.user.id, workspaceId);
   }
 }

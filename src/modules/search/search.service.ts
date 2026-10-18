@@ -52,8 +52,9 @@ export class SearchService implements OnModuleInit {
     }
   }
 
-  async reindexWorkspace(workspaceId: string) {
-    if (!this.client || !this.ready) return { ok: false };
+  async reindexWorkspace(userId: string, workspaceId: string) {
+    await this.access.assertMember(userId, workspaceId);
+    if (!this.client || !this.ready) return { ok: false, reason: 'meili_down' };
     const docs: Record<string, unknown>[] = [];
     const pages = await this.prisma.page.findMany({
       where: { workspaceId, trashedAt: null },

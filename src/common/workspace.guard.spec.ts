@@ -31,4 +31,14 @@ describe('WorkspaceAccessService role rank', () => {
     prisma.workspaceMember.findUnique.mockResolvedValue({ role: Role.EDITOR });
     await expect(access.assertMember('u1', 'w1', Role.EDITOR)).resolves.toBeTruthy();
   });
+
+  it('assertPageWrite rejects VIEWER', async () => {
+    prisma.page.findUnique.mockResolvedValue({
+      id: 'p1',
+      workspaceId: 'w1',
+      trashedAt: null,
+    });
+    prisma.workspaceMember.findUnique.mockResolvedValue({ role: Role.VIEWER });
+    await expect(access.assertPageWrite('u1', 'p1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

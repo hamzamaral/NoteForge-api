@@ -200,11 +200,20 @@ export class PagesService {
   }
 
   async softDelete(userId: string, pageId: string) {
-    await this.access.assertPageWrite(userId, pageId);
-    return this.prisma.page.update({
+    const page = await this.access.assertPageWrite(userId, pageId);
+    const updated = await this.prisma.page.update({
       where: { id: pageId },
       data: { trashedAt: new Date() },
     });
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: page.workspaceId,
+        actorId: userId,
+        action: 'page.trash',
+        meta: { pageId, title: page.title },
+      },
+    });
+    return updated;
   }
 
   async restore(userId: string, pageId: string) {
