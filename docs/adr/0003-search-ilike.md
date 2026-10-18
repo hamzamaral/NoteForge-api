@@ -1,7 +1,16 @@
-# ADR 0003 — Search via Postgres ILIKE (then Meilisearch)
+# ADR 0003 — Search: Meilisearch first, ILIKE fallback
+
+## Status
+Accepted (supersedes “Meili deferred”)
+
+## Context
+We need workspace search across pages, blocks, tasks, comments, and DB rows for demos.
 
 ## Decision
-Phase 7 search uses title `contains` + `Block.props::text ILIKE`, ranked with match type (title > task > content) and optional snippet. Meilisearch is deferred.
+1. **Primary:** Meilisearch (`MEILI_HOST`) — typo-tolerant, kind filters (`page|task|comment|db_row`).
+2. **Fallback:** Postgres `props::text ILIKE` when Meili is down.
+3. **Indexing:** Incremental `indexPage` after `saveBlocks` / comments; full `POST .../search/reindex` for seed/ops.
+4. Health exposes `meili: up|down`.
 
-## Why
-Demo workspaces are small; zero extra infra. Snippet + score is enough for interview demos. Index service lands when corpus size or latency demands it.
+## Consequences
+Local compose includes Meilisearch by default. No prod managed search SaaS required.

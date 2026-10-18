@@ -47,6 +47,7 @@ export class SharesService {
       },
     });
     if (!share) throw new NotFoundException('Paylaşım bulunamadı');
+    if (share.page.trashedAt) throw new NotFoundException('Paylaşım bulunamadı');
     return {
       permission: share.permission,
       page: {

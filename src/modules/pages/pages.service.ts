@@ -1,12 +1,15 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
+import { SearchService } from '../search/search.service';
 
 const TEMPLATES: Record<
   string,
@@ -86,6 +89,8 @@ export class PagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: WorkspaceAccessService,
+    @Inject(forwardRef(() => SearchService))
+    private readonly searchIndex: SearchService,
   ) {}
 
   async tree(userId: string, workspaceId: string) {
@@ -205,6 +210,7 @@ export class PagesService {
       where: { id: pageId },
       data: { trashedAt: new Date() },
     });
+    await this.prisma.pageShare.deleteMany({ where: { pageId } });
     await this.prisma.auditLog.create({
       data: {
         workspaceId: page.workspaceId,
@@ -241,6 +247,24 @@ export class PagesService {
       });
     }
 
+    const existingBlocks = await this.prisma.block.findMany({ where: { pageId } });
+    const hadContent = existingBlocks.some((b) => {
+      if (b.type === 'divider' || b.type === 'drawing' || b.type === 'image') return true;
+      const props = b.props as Record<string, unknown>;
+      return String(props.text ?? props.tex ?? props.url ?? props.src ?? '').trim().length > 0;
+    });
+    const incomingHasContent = blocks.some((b) => {
+      if (b.type === 'divider' || b.type === 'drawing' || b.type === 'image') return true;
+      const props = b.props as Record<string, unknown>;
+      return String(props.text ?? props.tex ?? props.url ?? props.src ?? '').trim().length > 0;
+    });
+    if (hadContent && !incomingHasContent) {
+      throw new BadRequestException('Boş içerik ile dolu sayfa silinemez — boş overwrite engellendi');
+    }
+
+    const nextVersion = page.contentVersion + 1;
+    const shouldSnapshot = nextVersion % 5 === 0;
+
     await this.prisma.$transaction(async (tx) => {
       await tx.block.deleteMany({ where: { pageId } });
       if (blocks.length) {
@@ -271,26 +295,29 @@ export class PagesService {
           });
         }
       }
-      // Snapshot every save (keep last 20)
-      await tx.pageSnapshot.create({
-        data: {
-          pageId,
-          version: page.contentVersion + 1,
-          title: page.title,
-          blocks: blocks as unknown as Prisma.InputJsonValue,
-        },
-      });
-      const old = await tx.pageSnapshot.findMany({
-        where: { pageId },
-        orderBy: { createdAt: 'desc' },
-        skip: 20,
-        select: { id: true },
-      });
-      if (old.length) {
-        await tx.pageSnapshot.deleteMany({ where: { id: { in: old.map((o) => o.id) } } });
+      // Snapshot every 5th version (keep last 20)
+      if (shouldSnapshot) {
+        await tx.pageSnapshot.create({
+          data: {
+            pageId,
+            version: nextVersion,
+            title: page.title,
+            blocks: blocks as unknown as Prisma.InputJsonValue,
+          },
+        });
+        const old = await tx.pageSnapshot.findMany({
+          where: { pageId },
+          orderBy: { createdAt: 'desc' },
+          skip: 20,
+          select: { id: true },
+        });
+        if (old.length) {
+          await tx.pageSnapshot.deleteMany({ where: { id: { in: old.map((o) => o.id) } } });
+        }
       }
     });
 
+    void this.searchIndex.indexPage(pageId).catch(() => undefined);
     return this.get(userId, pageId);
   }
 

@@ -42,14 +42,59 @@ export class SearchService implements OnModuleInit {
       await idx.updateFilterableAttributes(['workspaceId', 'kind']);
       await idx.updateSearchableAttributes(['title', 'snippet', 'body']);
       this.ready = true;
+      (global as { __nfMeili?: string }).__nfMeili = 'up';
       // eslint-disable-next-line no-console
       console.log('[search] Meilisearch ready');
     } catch {
       this.client = null;
       this.ready = false;
+      (global as { __nfMeili?: string }).__nfMeili = 'down';
       // eslint-disable-next-line no-console
       console.warn('[search] Meilisearch down — ILIKE fallback');
     }
+  }
+
+  isReady() {
+    return this.ready;
+  }
+
+  /** Incremental index for one page (blocks + comments) after save */
+  async indexPage(pageId: string) {
+    if (!this.client || !this.ready) return;
+    const p = await this.prisma.page.findUnique({
+      where: { id: pageId },
+      include: { blocks: true, comments: true },
+    });
+    if (!p || p.trashedAt) return;
+    const body = p.blocks
+      .map((b) => {
+        const props = b.props as Record<string, unknown>;
+        return String(props.text ?? props.alt ?? props.tex ?? '');
+      })
+      .join(' ');
+    const docs: Record<string, unknown>[] = [
+      {
+        id: `page_${p.id}`,
+        workspaceId: p.workspaceId,
+        kind: 'page',
+        pageId: p.id,
+        title: p.title,
+        snippet: body.slice(0, 160),
+        body,
+      },
+    ];
+    for (const c of p.comments) {
+      docs.push({
+        id: `comment_${c.id}`,
+        workspaceId: p.workspaceId,
+        kind: 'comment',
+        pageId: p.id,
+        title: p.title,
+        snippet: c.body.slice(0, 160),
+        body: c.body,
+      });
+    }
+    await this.client.index('noteforge').addDocuments(docs);
   }
 
   async reindexWorkspace(userId: string, workspaceId: string) {

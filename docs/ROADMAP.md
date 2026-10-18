@@ -13,5 +13,11 @@
 | 16 | Jest unit + e2e health; CI lint/test/build | ship |
 | 17 | (web) mobile nav + a11y | ship |
 | 18 | AuditLog, ZIP export, SystemSetting, pino-http, trash purge job | ship |
+| 19 | SoT flush, empty wipe 400, remount epoch, share/trash | ship |
+| 20 | Signed file GET, OWNER invite, sync CORS, snapshot ÷5 | ship |
+| 21 | Auto Meili index, health.meili | ship |
+| 22 | Rich seed, DEMO.md, ADR/INTERVIEW align | ship |
+| 23 | Real tests + CI gate | ship |
+| 24 | Mention nav, todo sync, disconnect banner, export types | ship |
 
-Docker (local): Postgres + Meilisearch + Mailhog. MinIO optional — API uses disk fallback.
+Docker (local): Postgres + Meilisearch + Mailhog. MinIO optional profile. See `../DEMO.md`.

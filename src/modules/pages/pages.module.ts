@@ -1,11 +1,12 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { SearchModule } from '../search/search.module';
 import { PagesController } from './pages.controller';
 import { PagesService } from './pages.service';
 
 @Module({
-  imports: [AuthModule, WorkspacesModule],
+  imports: [AuthModule, WorkspacesModule, forwardRef(() => SearchModule)],
   controllers: [PagesController],
   providers: [PagesService],
   exports: [PagesService],

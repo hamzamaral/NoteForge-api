@@ -15,5 +15,5 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npm run lint --if-present
-      - run: npm test -- --passWithNoTests
+      - run: npm test
       - run: npm run build

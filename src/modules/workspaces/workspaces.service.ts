@@ -50,12 +50,12 @@ export class WorkspacesService {
   }
 
   async invite(userId: string, workspaceId: string, email: string, role: Role) {
-    const me = await this.access.assertMember(userId, workspaceId);
-    if (me.role !== Role.OWNER && me.role !== Role.EDITOR) {
-      throw new ForbiddenException('Davet için owner veya editor olmalısın');
+    const me = await this.access.assertMember(userId, workspaceId, Role.OWNER);
+    if (me.role !== Role.OWNER) {
+      throw new ForbiddenException('Davet sadece OWNER');
     }
-    if (role === Role.OWNER && me.role !== Role.OWNER) {
-      throw new ForbiddenException('Sadece owner, owner rolü verebilir');
+    if (role === Role.OWNER) {
+      throw new ForbiddenException('OWNER rolü davet ile verilemez');
     }
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new NotFoundException('Kullanıcı yok — önce kayıt olsun');

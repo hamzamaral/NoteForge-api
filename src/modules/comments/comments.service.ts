@@ -1,8 +1,9 @@
 import { Role } from '@prisma/client';
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SearchService } from '../search/search.service';
 
 @Injectable()
 export class CommentsService {
@@ -10,6 +11,9 @@ export class CommentsService {
     private readonly prisma: PrismaService,
     private readonly access: WorkspaceAccessService,
     private readonly notifications: NotificationsService,
+    @Optional()
+    @Inject(forwardRef(() => SearchService))
+    private readonly search?: SearchService,
   ) {}
 
   async list(userId: string, pageId: string) {
@@ -66,6 +70,7 @@ export class CommentsService {
       });
     }
 
+    void this.search?.indexPage(pageId).catch(() => undefined);
     return comment;
   }
 

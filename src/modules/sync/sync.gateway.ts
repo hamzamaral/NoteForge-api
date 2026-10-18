@@ -40,7 +40,10 @@ function uint8ToB64(u8: Uint8Array) {
 }
 
 @WebSocketGateway({
-  cors: { origin: '*' },
+  cors: {
+    origin: process.env.CORS_ORIGIN?.split(',').map((s) => s.trim()) || true,
+    credentials: true,
+  },
   namespace: '/sync',
 })
 export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {

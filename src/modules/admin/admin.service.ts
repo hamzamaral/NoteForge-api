@@ -97,6 +97,15 @@ export class AdminService {
           if (b.type === 'quote') return `> ${text}`;
           if (b.type === 'image') return `![${props.alt || ''}](${props.src || ''})`;
           if (b.type === 'divider') return '---';
+          if (b.type === 'callout') return `> ${props.emoji || '💡'} ${text}`;
+          if (b.type === 'toggle') return `<details><summary>Toggle</summary>\n\n${text}\n\n</details>`;
+          if (b.type === 'math') return `$$\n${props.tex || text}\n$$`;
+          if (b.type === 'bookmark') return `[${props.title || props.url}](${props.url || ''})`;
+          if (b.type === 'drawing') return `*[çizim ${props.sceneId || ''}]*`;
+          if (b.type === 'columns') {
+            const cols = Array.isArray(props.columns) ? (props.columns as string[]) : [text];
+            return cols.map((c) => `> ${c}`).join('\n\n');
+          }
           return text;
         }),
         '',

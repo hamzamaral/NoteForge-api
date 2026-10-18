@@ -1,12 +1,15 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
+  NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { randomUUID } from 'crypto';
-import { mkdirSync, writeFileSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkspaceAccessService } from '../../common/workspace.guard';
@@ -19,6 +22,7 @@ const ALLOWED = new Set([
   'image/gif',
   'application/pdf',
 ]);
+const SIGN_TTL_SEC = 7 * 24 * 3600;
 
 @Injectable()
 export class FilesService implements OnModuleInit {
@@ -63,7 +67,41 @@ export class FilesService implements OnModuleInit {
     }
     this.mode = 'local';
     // eslint-disable-next-line no-console
-    console.log('[files] local uploads at', this.uploadRoot);
+    console.log('[files] local uploads (signed GET) at', this.uploadRoot);
+  }
+
+  private signSecret() {
+    return (
+      this.config.get<string>('FILE_SIGN_SECRET') ||
+      this.config.get<string>('JWT_ACCESS_SECRET') ||
+      'dev-file-sign'
+    );
+  }
+
+  signKey(key: string, ttlSec = SIGN_TTL_SEC) {
+    const exp = Math.floor(Date.now() / 1000) + ttlSec;
+    const payload = `${key}.${exp}`;
+    const sig = createHmac('sha256', this.signSecret()).update(payload).digest('hex');
+    return { exp, sig };
+  }
+
+  verifySignature(key: string, exp: string, sig: string) {
+    const expN = Number(exp);
+    if (!key || !sig || !expN || expN < Math.floor(Date.now() / 1000)) {
+      throw new ForbiddenException('İmza süresi dolmuş veya geçersiz');
+    }
+    const payload = `${key}.${expN}`;
+    const expect = createHmac('sha256', this.signSecret()).update(payload).digest('hex');
+    const a = Buffer.from(expect);
+    const b = Buffer.from(sig);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new ForbiddenException('Geçersiz dosya imzası');
+    }
+  }
+
+  signedUrl(key: string) {
+    const { exp, sig } = this.signKey(key);
+    return `/api/v1/files/serve?key=${encodeURIComponent(key)}&exp=${exp}&sig=${sig}`;
   }
 
   async upload(
@@ -78,25 +116,17 @@ export class FilesService implements OnModuleInit {
     const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
     const key = `${workspaceId}/${randomUUID()}-${safe}`;
 
-    let url: string;
     if (this.mode === 'minio' && this.minio) {
       await this.minio.putObject(this.bucket, key, file.buffer, file.size, {
         'Content-Type': file.mimetype,
       });
-      const publicBase =
-        this.config.get<string>('MINIO_PUBLIC_URL') ||
-        `http://${this.config.get('MINIO_ENDPOINT')}:${this.config.get('MINIO_PORT') || 9000}`;
-      url = `${publicBase.replace(/\/$/, '')}/${this.bucket}/${key}`;
     } else {
       const dir = join(this.uploadRoot, workspaceId);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(join(this.uploadRoot, key), file.buffer);
-      const publicBase = this.config.get<string>('PUBLIC_FILE_BASE') || '';
-      url = publicBase
-        ? `${publicBase.replace(/\/$/, '')}/uploads/${key}`
-        : `/uploads/${key}`;
     }
 
+    const url = this.signedUrl(key);
     return this.prisma.fileAsset.create({
       data: {
         workspaceId,
@@ -107,5 +137,22 @@ export class FilesService implements OnModuleInit {
         size: file.size,
       },
     });
+  }
+
+  async serve(key: string, exp: string, sig: string) {
+    this.verifySignature(key, exp, sig);
+    if (key.includes('..') || key.startsWith('/') || key.includes('\\')) {
+      throw new BadRequestException('Geçersiz key');
+    }
+    const asset = await this.prisma.fileAsset.findFirst({ where: { key } });
+    if (!asset) throw new NotFoundException('Dosya yok');
+
+    if (this.mode === 'minio' && this.minio) {
+      const stream = await this.minio.getObject(this.bucket, key);
+      return { stream, mime: asset.mime, size: asset.size };
+    }
+    const path = join(this.uploadRoot, key);
+    if (!existsSync(path)) throw new NotFoundException('Dosya yok');
+    return { buffer: readFileSync(path), mime: asset.mime, size: asset.size };
   }
 }

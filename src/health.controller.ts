@@ -14,9 +14,11 @@ export class HealthController {
     } catch {
       db = 'down';
     }
+    const meili = (global as { __nfMeili?: string }).__nfMeili || 'unknown';
     return {
       status: db === 'up' ? 'ok' : 'degraded',
       db,
+      meili,
       syncRooms: (global as { __nfSyncRoomCount?: number }).__nfSyncRoomCount ?? 0,
       ts: new Date().toISOString(),
     };

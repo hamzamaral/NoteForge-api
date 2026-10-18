@@ -1,8 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
 import pinoHttp from 'pino-http';
 import pino from 'pino';
 import { Request, Response, NextFunction } from 'express';
@@ -12,7 +10,7 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 
 async function bootstrap() {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+  const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
   app.use(
@@ -22,7 +20,7 @@ async function bootstrap() {
     }),
   );
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  // Files: signed GET /api/v1/files/serve only (no public /uploads)
   app.setGlobalPrefix('api/v1');
   app.enableCors({
     origin: process.env.CORS_ORIGIN?.split(',') || true,
